@@ -37,7 +37,7 @@ import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.ViewSidebar
+import androidx.compose.material.icons.automirrored.filled.ViewSidebar
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -176,7 +176,7 @@ fun VisualBuilderScreen(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(
-                            Icons.Filled.ViewSidebar,
+                            Icons.AutoMirrored.Filled.ViewSidebar,
                             stringResource(id = R.string.cd_add_component),
                             tint = if (showSidePalette) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)

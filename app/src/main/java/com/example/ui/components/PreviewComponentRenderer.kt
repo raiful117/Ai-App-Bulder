@@ -41,7 +41,7 @@ import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Button
@@ -410,7 +410,7 @@ fun PreviewComponentRenderer(
                                 Text(component.subtitle, color = textSecondary, fontSize = 12.sp)
                             }
                         }
-                        Icon(Icons.Filled.TrendingUp, null, tint = accent, modifier = Modifier.size(28.dp))
+                        Icon(Icons.AutoMirrored.Filled.TrendingUp, null, tint = accent, modifier = Modifier.size(28.dp))
                     }
                 }
             }

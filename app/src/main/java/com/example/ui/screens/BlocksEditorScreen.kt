@@ -33,7 +33,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.ViewSidebar
+import androidx.compose.material.icons.automirrored.filled.ViewSidebar
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -291,7 +291,7 @@ fun BlocksEditorScreen(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(
-                            Icons.Filled.ViewSidebar,
+                            Icons.AutoMirrored.Filled.ViewSidebar,
                             null,
                             tint = if (showSidePalette) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
