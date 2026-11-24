@@ -199,16 +199,16 @@ jobs:
           RELEASE_TITLE="Debug APK Build #${GITHUB_RUN_NUMBER}"
           NOTES_FILE="$(mktemp "${RUNNER_TEMP:-/tmp}/release-notes.XXXXXX.md")"
 
-          cat > "$NOTES_FILE" <<EOF
-          This is an automatically generated debug APK built by GitHub Actions.
-
-          - **Workflow Run Number:** ${GITHUB_RUN_NUMBER}
-          - **Workflow Run Attempt:** ${GITHUB_RUN_ATTEMPT}
-          - **Source Commit SHA:** ${GITHUB_SHA}
-          - **APK File:** \`${ASSET_NAME}\`
-
-          > **Note:** This APK is intended for testing only. It is not a Play Store production release and is signed only with a temporary debug keystore.
-          EOF
+          printf '%s\n' \
+            "This is an automatically generated debug APK built by GitHub Actions." \
+            "" \
+            "- **Workflow Run Number:** ${GITHUB_RUN_NUMBER}" \
+            "- **Workflow Run Attempt:** ${GITHUB_RUN_ATTEMPT}" \
+            "- **Source Commit SHA:** ${GITHUB_SHA}" \
+            "- **APK File:** \`${ASSET_NAME}\`" \
+            "" \
+            "> **Note:** This APK is intended for testing only. It is not a Play Store production release and is signed only with a temporary debug keystore." \
+            > "$NOTES_FILE"
 
           gh release create "$RELEASE_TAG" "$ASSET_PATH" \
             --title "$RELEASE_TITLE" \

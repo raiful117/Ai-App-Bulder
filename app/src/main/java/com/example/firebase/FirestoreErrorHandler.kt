@@ -27,7 +27,10 @@ fun handleFirestoreError(
         ?: causes.firstOrNull { it !is CancellationException }
         ?: exception
 
-    val currentUser = Firebase.auth.currentUser
+    val currentUser = runCatching {
+        com.google.firebase.FirebaseApp.getInstance()
+        Firebase.auth.currentUser
+    }.getOrNull()
     val providerInfoList = currentUser?.providerData?.map { provider ->
         JSONObject().apply {
             put("providerId", provider.providerId)

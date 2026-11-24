@@ -36,6 +36,7 @@ import com.example.model.CustomMoreBlock
 import com.example.model.DatabaseEngine
 import com.example.model.DatabaseTableSpec
 import com.example.model.DeploymentRecord
+import com.example.model.DeploymentStatus
 import com.example.model.DiagnosticIssue
 import com.example.model.FirebaseSetupConfig
 import com.example.model.FirestoreCollectionSpec
@@ -128,7 +129,8 @@ class StudioViewModel(
     private val localDb: LocalStudioDatabase,
     private val preferences: StudioPreferences,
     private val httpClient: HttpWorkspaceClient,
-    private val currentUserId: String
+    private val currentUserId: String,
+    private val cloudSyncEnabled: Boolean = repository.isCloudEnabled
 ) : ViewModel() {
 
     private companion object {
@@ -139,11 +141,25 @@ class StudioViewModel(
     val providerSettings: StateFlow<AiProviderSettings> = preferences.settingsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), AiProviderSettings())
 
-    val projectsState: StateFlow<UiState<List<AppProject>>> = repository.observeProjects(currentUserId)
-        .map<List<AppProject>, UiState<List<AppProject>>> { projects ->
-            cacheProjectsLocally(projects)
-            UiState.Success(projects)
+    val projectsState: StateFlow<UiState<List<AppProject>>> = (
+        if (cloudSyncEnabled) {
+            repository.observeProjects(currentUserId)
+                .map<List<AppProject>, UiState<List<AppProject>>> { projects ->
+                    cacheProjectsLocally(projects)
+                    UiState.Success(projects)
+                }
+        } else {
+            localDb.projectDao().observeLocalProjects(currentUserId)
+                .map<List<LocalProjectEntity>, UiState<List<AppProject>>> { entities ->
+                    val parsed = entities.mapNotNull { entity ->
+                        ProjectGenerators.importProjectJson(entity.jsonPayload, currentUserId)
+                            .first
+                            ?.copy(id = entity.projectId, userId = currentUserId)
+                    }
+                    UiState.Success(parsed)
+                }
         }
+    )
         .catch { error ->
             val firestoreError = generateSequence(error) { it.cause }
                 .filterIsInstance<FirebaseFirestoreException>()
@@ -159,8 +175,14 @@ class StudioViewModel(
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), 0)
 
-    val deploymentsState: StateFlow<UiState<List<DeploymentRecord>>> = repository.observeDeployments(currentUserId)
-        .map<List<DeploymentRecord>, UiState<List<DeploymentRecord>>> { UiState.Success(it) }
+    val deploymentsState: StateFlow<UiState<List<DeploymentRecord>>> = (
+        if (cloudSyncEnabled) {
+            repository.observeDeployments(currentUserId)
+                .map<List<DeploymentRecord>, UiState<List<DeploymentRecord>>> { UiState.Success(it) }
+        } else {
+            flowOf(UiState.Success(emptyList()))
+        }
+    )
         .catch { error ->
             val firestoreError = generateSequence(error) { it.cause }
                 .filterIsInstance<FirebaseFirestoreException>()
@@ -257,6 +279,12 @@ class StudioViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
 
+    init {
+        if (!cloudSyncEnabled) {
+            _statusBanner.value = "Local Studio mode active (google-services.json not bundled). Projects save locally; add an AI API key in Settings to use AI."
+        }
+    }
+
     fun selectTab(tab: StudioTab) {
         _currentTab.value = tab
         if (tab == StudioTab.BUILD_CENTER) {
@@ -346,7 +374,26 @@ class StudioViewModel(
 
     fun createFromTemplate(template: AppProject) {
         viewModelScope.launch {
-            _aiState.value = AiTaskState.Working("Creating '${template.name}' in cloud & Room cache...")
+            _aiState.value = AiTaskState.Working(
+                if (cloudSyncEnabled) "Creating '${template.name}' in cloud & Room cache..."
+                else "Creating '${template.name}' locally in Room..."
+            )
+            if (!cloudSyncEnabled) {
+                val newId = StarterBlueprints.newId("loc")
+                val localCopy = template.copy(id = newId, userId = currentUserId)
+                cacheSingleLocally(localCopy, dirty = true)
+                _activeProjectId.value = newId
+                _activeScreenId.value = localCopy.screens.firstOrNull()?.screenId
+                _selectedFileId.value = localCopy.files.firstOrNull()?.fileId
+                _selectedBlockWidgetId.value = ""
+                _selectedBlockEvent.value = "onCreate"
+                _lastAiGeneratedFiles.value = localCopy.files
+                _previewState.value = PreviewRuntimeState(currentScreenId = localCopy.screens.firstOrNull()?.screenId)
+                saveLocalSnapshot(localCopy, "Initial template")
+                _aiState.value = AiTaskState.Success("Created ${localCopy.name} (Local Studio)")
+                _currentTab.value = StudioTab.WORKSPACE
+                return@launch
+            }
             val result = repository.createProject(currentUserId, template)
             result.onSuccess { newId ->
                 _activeProjectId.value = newId
@@ -381,6 +428,12 @@ class StudioViewModel(
 
     fun deleteProject(projectId: String) {
         viewModelScope.launch {
+            if (!cloudSyncEnabled) {
+                localDb.projectDao().deleteProject(projectId)
+                if (_activeProjectId.value == projectId) _activeProjectId.value = null
+                _statusBanner.value = "Project deleted."
+                return@launch
+            }
             repository.deleteProject(currentUserId, projectId)
                 .onSuccess {
                     localDb.projectDao().deleteProject(projectId)
@@ -511,21 +564,38 @@ class StudioViewModel(
                     AgentStep("2", "Generate", "Generated ${generated.files.size} source & config files", AgentStepStatus.DONE),
                     AgentStep("3", "Validate", "Diagnostics verified — syncing to cloud", AgentStepStatus.RUNNING)
                 )
-                val saveRes = repository.createProject(currentUserId, generated)
-                saveRes.onSuccess { newId ->
+                if (!cloudSyncEnabled) {
+                    val newId = StarterBlueprints.newId("loc")
+                    val localCopy = generated.copy(id = newId, userId = currentUserId)
+                    cacheSingleLocally(localCopy, dirty = true)
                     _activeProjectId.value = newId
-                    _activeScreenId.value = generated.screens.firstOrNull()?.screenId
-                    _selectedFileId.value = generated.files.firstOrNull()?.fileId
+                    _activeScreenId.value = localCopy.screens.firstOrNull()?.screenId
+                    _selectedFileId.value = localCopy.files.firstOrNull()?.fileId
                     _selectedBlockWidgetId.value = ""
                     _selectedBlockEvent.value = "onCreate"
-                    _lastAiGeneratedFiles.value = generated.files
-                    _previewState.value = PreviewRuntimeState(currentScreenId = generated.screens.firstOrNull()?.screenId)
-                    saveLocalSnapshot(generated.copy(id = newId), "AI: ${mode.label}")
-                    _agentSteps.update { it.dropLast(1) + AgentStep("3", "Report", "Saved '${generated.name}' (${generated.files.size} files)", AgentStepStatus.DONE) }
-                    _aiState.value = AiTaskState.Success("Generated '${generated.name}' (${generated.screens.size} screens, ${generated.files.size} files)")
+                    _lastAiGeneratedFiles.value = localCopy.files
+                    _previewState.value = PreviewRuntimeState(currentScreenId = localCopy.screens.firstOrNull()?.screenId)
+                    saveLocalSnapshot(localCopy, "AI: ${mode.label}")
+                    _agentSteps.update { it.dropLast(1) + AgentStep("3", "Report", "Saved '${localCopy.name}' locally (${localCopy.files.size} files)", AgentStepStatus.DONE) }
+                    _aiState.value = AiTaskState.Success("Generated '${localCopy.name}' (${localCopy.screens.size} screens, ${localCopy.files.size} files)")
                     _currentTab.value = StudioTab.WORKSPACE
-                }.onFailure { err ->
-                    _aiState.value = AiTaskState.Error("Generated app, but Firestore save failed: ${err.localizedMessage}")
+                } else {
+                    val saveRes = repository.createProject(currentUserId, generated)
+                    saveRes.onSuccess { newId ->
+                        _activeProjectId.value = newId
+                        _activeScreenId.value = generated.screens.firstOrNull()?.screenId
+                        _selectedFileId.value = generated.files.firstOrNull()?.fileId
+                        _selectedBlockWidgetId.value = ""
+                        _selectedBlockEvent.value = "onCreate"
+                        _lastAiGeneratedFiles.value = generated.files
+                        _previewState.value = PreviewRuntimeState(currentScreenId = generated.screens.firstOrNull()?.screenId)
+                        saveLocalSnapshot(generated.copy(id = newId), "AI: ${mode.label}")
+                        _agentSteps.update { it.dropLast(1) + AgentStep("3", "Report", "Saved '${generated.name}' (${generated.files.size} files)", AgentStepStatus.DONE) }
+                        _aiState.value = AiTaskState.Success("Generated '${generated.name}' (${generated.screens.size} screens, ${generated.files.size} files)")
+                        _currentTab.value = StudioTab.WORKSPACE
+                    }.onFailure { err ->
+                        _aiState.value = AiTaskState.Error("Generated app, but Firestore save failed: ${err.localizedMessage}")
+                    }
                 }
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Full-stack generation timed out", e)
@@ -1329,12 +1399,20 @@ class StudioViewModel(
     fun deployProject(environment: String, versionTag: String, summary: String) {
         val project = activeProject.value ?: return
         viewModelScope.launch {
+            val cleanTag = versionTag.trim().ifBlank { "v1.0.1" }
+            if (!cloudSyncEnabled) {
+                val nextStatus = if (environment == "STAGING") DeploymentStatus.STAGING else DeploymentStatus.DEPLOYED
+                val updated = project.copy(deploymentStatus = nextStatus, activeVersion = cleanTag)
+                cacheSingleLocally(updated, dirty = true)
+                _aiState.value = AiTaskState.Success("Saved release $cleanTag locally (Cloud deploy requires google-services.json)")
+                return@launch
+            }
             _aiState.value = AiTaskState.Working("Deploying ${project.name} ($versionTag) to $environment...")
             val result = repository.deployRelease(
                 userId = currentUserId,
                 project = project,
                 environment = environment,
-                versionTag = versionTag.trim().ifBlank { "v1.0.1" },
+                versionTag = cleanTag,
                 summary = summary.trim().ifBlank { "Full-stack release via BCF Builder AI" }
             )
             result.onSuccess { url ->
@@ -1670,6 +1748,10 @@ class StudioViewModel(
     private fun saveDesignUpdate(updated: AppProject, banner: String? = null) {
         viewModelScope.launch {
             cacheSingleLocally(updated, dirty = true)
+            if (!cloudSyncEnabled) {
+                if (banner != null) _statusBanner.value = banner
+                return@launch
+            }
             repository.updateProjectDesign(currentUserId, updated)
                 .onSuccess {
                     cacheSingleLocally(updated, dirty = false)
@@ -1684,6 +1766,10 @@ class StudioViewModel(
     private fun saveCloudUpdate(updated: AppProject, banner: String? = null) {
         viewModelScope.launch {
             cacheSingleLocally(updated, dirty = true)
+            if (!cloudSyncEnabled) {
+                if (banner != null) _statusBanner.value = banner
+                return@launch
+            }
             repository.updateProjectCloud(currentUserId, updated)
                 .onSuccess {
                     cacheSingleLocally(updated, dirty = false)

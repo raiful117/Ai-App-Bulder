@@ -7,6 +7,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -15,6 +17,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.ai.AiStudioEngine
 import com.example.auth.AuthScreen
 import com.example.auth.authStateFlow
+import com.example.auth.isFirebaseAvailable
 import com.example.data.ProjectRepository
 import com.example.firebase.configureAppCheck
 import com.example.local.LocalStudioDatabase
@@ -45,8 +48,47 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
-    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+fun AppNavigation(auth: FirebaseAuth? = null) {
+    val context = LocalContext.current
+    val resolvedAuth = remember(context, auth) {
+        auth ?: if (isFirebaseAvailable(context)) {
+            runCatching { Firebase.auth }.getOrNull()
+        } else null
+    }
+
+    if (resolvedAuth == null) {
+        val localUserId = "local-studio-user"
+        key(localUserId) {
+            val viewModel: StudioViewModel = viewModel(
+                key = localUserId,
+                factory = viewModelFactory {
+                    initializer {
+                        val app = checkNotNull(this[APPLICATION_KEY]) {
+                            "APPLICATION_KEY missing from CreationExtras"
+                        }
+                        StudioViewModel(
+                            repository = ProjectRepository(db = null, auth = null),
+                            aiEngine = AiStudioEngine(),
+                            localDb = LocalStudioDatabase.getInstance(app),
+                            preferences = StudioPreferences(app),
+                            httpClient = HttpWorkspaceClient(),
+                            currentUserId = localUserId,
+                            cloudSyncEnabled = false
+                        )
+                    }
+                }
+            )
+            ForgeStudioApp(
+                viewModel = viewModel,
+                currentUserId = localUserId,
+                userEmail = "Local Offline Studio Mode",
+                isCloudAuthActive = false
+            )
+        }
+        return
+    }
+
+    val currentUser by resolvedAuth.authStateFlow().collectAsStateWithLifecycle(initialValue = resolvedAuth.currentUser)
     val user = currentUser
     if (user == null) {
         AuthScreen(onAuthSuccess = {})
@@ -62,12 +104,13 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
                         val databaseId = app.getString(R.string.firestore_database_id)
                         val db = FirebaseFirestore.getInstance(databaseId)
                         StudioViewModel(
-                            repository = ProjectRepository(db, auth),
+                            repository = ProjectRepository(db, resolvedAuth),
                             aiEngine = AiStudioEngine(),
                             localDb = LocalStudioDatabase.getInstance(app),
                             preferences = StudioPreferences(app),
                             httpClient = HttpWorkspaceClient(),
-                            currentUserId = user.uid
+                            currentUserId = user.uid,
+                            cloudSyncEnabled = true
                         )
                     }
                 }
@@ -75,7 +118,8 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
             ForgeStudioApp(
                 viewModel = viewModel,
                 currentUserId = user.uid,
-                userEmail = user.email
+                userEmail = user.email,
+                isCloudAuthActive = true
             )
         }
     }

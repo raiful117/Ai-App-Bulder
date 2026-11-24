@@ -170,6 +170,11 @@ class AiStudioEngine {
         schema: Schema?,
         maxTokens: Int = 4096
     ): String {
+        if (runCatching { com.google.firebase.FirebaseApp.getInstance() }.isFailure) {
+            throw IllegalStateException(
+                "Firebase AI Logic requires google-services.json in the build. Configure an OpenAI-Compatible or Custom API endpoint & key in Settings -> AI Providers."
+            )
+        }
         val candidates = listOf(preferredModel.ifBlank { DEFAULT_MODEL }, FALLBACK_MODEL)
             .distinct()
         var lastError: Exception? = null
@@ -639,6 +644,12 @@ class AiStudioEngine {
         if (providerSettings.provider != AiProviderType.GEMINI_FIREBASE) {
             emit(callExternalProvider(providerSettings, prompt, expectJson = false))
             return@flow
+        }
+
+        if (runCatching { com.google.firebase.FirebaseApp.getInstance() }.isFailure) {
+            throw IllegalStateException(
+                "Firebase AI Logic requires google-services.json in the build. Configure an OpenAI-Compatible or Custom API endpoint & key in Settings -> AI Providers."
+            )
         }
 
         val candidates = listOf(providerSettings.modelName.ifBlank { DEFAULT_MODEL }, FALLBACK_MODEL).distinct()

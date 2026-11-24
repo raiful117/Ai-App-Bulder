@@ -117,7 +117,8 @@ import kotlinx.coroutines.launch
 fun ForgeStudioApp(
     viewModel: StudioViewModel,
     currentUserId: String,
-    userEmail: String?
+    userEmail: String?,
+    isCloudAuthActive: Boolean = true
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -317,14 +318,16 @@ fun ForgeStudioApp(
                                             viewModel.selectTab(StudioTab.SETTINGS)
                                         }
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(id = R.string.sign_out)) },
-                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Logout, null) },
-                                        onClick = {
-                                            showAccountMenu = false
-                                            signOut(credentialManager, scope)
-                                        }
-                                    )
+                                    if (isCloudAuthActive) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(id = R.string.sign_out)) },
+                                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Logout, null) },
+                                            onClick = {
+                                                showAccountMenu = false
+                                                signOut(credentialManager, scope)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }

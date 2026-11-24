@@ -14,6 +14,7 @@ import com.example.model.DeploymentStatus
 import com.example.model.ProjectFile
 import com.example.model.ScalingTier
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
@@ -26,26 +27,45 @@ import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
 class ProjectRepository(
-    private val db: FirebaseFirestore,
-    private val auth: FirebaseAuth = Firebase.auth
+    private val db: FirebaseFirestore? = null,
+    private val auth: FirebaseAuth? = null
 ) {
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
+        db = if (FirebaseApp.getApps(context).isNotEmpty()) {
+            runCatching {
+                FirebaseFirestore.getInstance(
+                    context.applicationContext.getString(R.string.firestore_database_id)
+                )
+            }.getOrNull()
+        } else null,
+        auth = if (FirebaseApp.getApps(context).isNotEmpty()) {
+            runCatching { Firebase.auth }.getOrNull()
+        } else null
     )
 
+    val isCloudEnabled: Boolean
+        get() = db != null && auth != null
+
+    private fun requireCloud(): Pair<FirebaseFirestore, FirebaseAuth> {
+        val firestore = db ?: throw IllegalStateException("Cloud sync disabled (google-services.json not bundled).")
+        val firebaseAuth = auth ?: throw IllegalStateException("Firebase Auth disabled (google-services.json not bundled).")
+        return firestore to firebaseAuth
+    }
+
     private fun requireUserId(): String =
-        auth.currentUser?.uid
+        auth?.currentUser?.uid
             ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
 
     fun observeProjects(userId: String): Flow<List<AppProject>> {
+        val firestore = db ?: return flowOf(emptyList())
+        val firebaseAuth = auth ?: return flowOf(emptyList())
         val path = "users/$userId/projects"
-        return db.collection("users")
+        return firestore.collection("users")
             .document(userId)
             .collection("projects")
             .orderBy("updatedAt", Query.Direction.DESCENDING)
@@ -59,7 +79,7 @@ class ProjectRepository(
                     .firstOrNull()
                 if (firestoreError == null && error is CancellationException) throw error
                 val exceptionToLog = firestoreError ?: (error as? Exception)
-                if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                if (exceptionToLog != null && firebaseAuth.currentUser?.uid == userId) {
                     handleFirestoreError(exceptionToLog, OperationType.LIST, path)
                 }
                 throw error
@@ -67,8 +87,10 @@ class ProjectRepository(
     }
 
     fun observeDeployments(userId: String): Flow<List<DeploymentRecord>> {
+        val firestore = db ?: return flowOf(emptyList())
+        val firebaseAuth = auth ?: return flowOf(emptyList())
         val path = "users/$userId/deployments"
-        return db.collection("users")
+        return firestore.collection("users")
             .document(userId)
             .collection("deployments")
             .orderBy("createdAt", Query.Direction.DESCENDING)
@@ -82,7 +104,7 @@ class ProjectRepository(
                     .firstOrNull()
                 if (firestoreError == null && error is CancellationException) throw error
                 val exceptionToLog = firestoreError ?: (error as? Exception)
-                if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                if (exceptionToLog != null && firebaseAuth.currentUser?.uid == userId) {
                     handleFirestoreError(exceptionToLog, OperationType.LIST, path)
                 }
                 throw error
@@ -92,9 +114,10 @@ class ProjectRepository(
     suspend fun createProject(userId: String, project: AppProject): Result<String> {
         var docPath = "users/$userId/projects"
         return try {
+            val (firestore, _) = requireCloud()
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user write." }
-            val docRef = db.collection("users").document(uid).collection("projects").document()
+            val docRef = firestore.collection("users").document(uid).collection("projects").document()
             docPath = docRef.path
             val sanitized = project.copy(
                 userId = uid,
@@ -116,10 +139,11 @@ class ProjectRepository(
         val projectId = project.id
         var docPath = "users/$userId/projects/$projectId"
         return try {
+            val (firestore, _) = requireCloud()
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user write." }
             require(projectId.isNotBlank()) { "Project ID must not be blank for update." }
-            val docRef = db.collection("users").document(uid).collection("projects").document(projectId)
+            val docRef = firestore.collection("users").document(uid).collection("projects").document(projectId)
             docPath = docRef.path
             docRef.update(project.toDesignUpdateMap()).await()
             Result.success(Unit)
@@ -135,10 +159,11 @@ class ProjectRepository(
         val projectId = project.id
         var docPath = "users/$userId/projects/$projectId"
         return try {
+            val (firestore, _) = requireCloud()
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user write." }
             require(projectId.isNotBlank()) { "Project ID must not be blank for cloud update." }
-            val docRef = db.collection("users").document(uid).collection("projects").document(projectId)
+            val docRef = firestore.collection("users").document(uid).collection("projects").document(projectId)
             docPath = docRef.path
             docRef.update(project.toCloudUpdateMap()).await()
             Result.success(Unit)
@@ -153,10 +178,11 @@ class ProjectRepository(
     suspend fun deleteProject(userId: String, projectId: String): Result<Unit> {
         var docPath = "users/$userId/projects/$projectId"
         return try {
+            val (firestore, _) = requireCloud()
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user delete." }
             require(projectId.isNotBlank()) { "Project ID must not be blank for delete." }
-            val docRef = db.collection("users").document(uid).collection("projects").document(projectId)
+            val docRef = firestore.collection("users").document(uid).collection("projects").document(projectId)
             docPath = docRef.path
             docRef.delete().await()
             Result.success(Unit)
@@ -177,6 +203,7 @@ class ProjectRepository(
     ): Result<String> {
         var docPath = "users/$userId/deployments"
         return try {
+            val (firestore, _) = requireCloud()
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user deployment." }
             require(project.id.isNotBlank()) { "Project ID must not be blank." }
@@ -190,11 +217,11 @@ class ProjectRepository(
                 deploymentStatus = nextStatus,
                 activeVersion = versionTag.take(24).ifBlank { "v1.0.1" }
             )
-            val projRef = db.collection("users").document(uid).collection("projects").document(project.id)
+            val projRef = firestore.collection("users").document(uid).collection("projects").document(project.id)
             projRef.update(updatedProject.toCloudUpdateMap()).await()
 
             // 2. Record immutable deployment log
-            val depRef = db.collection("users").document(uid).collection("deployments").document()
+            val depRef = firestore.collection("users").document(uid).collection("deployments").document()
             docPath = depRef.path
             val payload = mapOf(
                 "userId" to uid,
@@ -221,10 +248,11 @@ class ProjectRepository(
     suspend fun rollbackDeployment(userId: String, deploymentId: String): Result<Unit> {
         var docPath = "users/$userId/deployments/$deploymentId"
         return try {
+            val (firestore, _) = requireCloud()
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user rollback." }
             require(deploymentId.isNotBlank()) { "Deployment ID must not be blank." }
-            val depRef = db.collection("users").document(uid).collection("deployments").document(deploymentId)
+            val depRef = firestore.collection("users").document(uid).collection("deployments").document(deploymentId)
             docPath = depRef.path
             depRef.update(
                 mapOf(
