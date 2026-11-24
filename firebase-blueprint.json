@@ -1,0 +1,170 @@
+{
+  "entities": {
+    "AppProject": {
+      "title": "AppProject",
+      "description": "A user-created full-stack Android app blueprint containing screens, visual components, multi-file code structure, and cloud backend specifications.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the project owner."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the generated or designed app."
+        },
+        "packageName": {
+          "type": "string",
+          "description": "Reverse-DNS Android package identifier."
+        },
+        "tagline": {
+          "type": "string",
+          "description": "Short architectural summary or tagline."
+        },
+        "themePreset": {
+          "type": "string",
+          "description": "Material 3 theme preset identifier.",
+          "enum": ["OBSIDIAN_CYAN", "EMERALD_CLOUD", "INDIGO_PULSE", "SUNSET_CORAL", "MONOCHROME_PRO"]
+        },
+        "architecture": {
+          "type": "string",
+          "description": "Code architecture pattern.",
+          "enum": ["CLEAN_MVVM", "MVI_MODULAR", "FEATURE_FIRST"]
+        },
+        "cloudRegion": {
+          "type": "string",
+          "description": "Target cloud deployment region."
+        },
+        "scalingTier": {
+          "type": "string",
+          "description": "Cloud compute and scaling profile.",
+          "enum": ["SERVERLESS_AUTO", "EDGE_GLOBAL", "HIGH_MEMORY"]
+        },
+        "deploymentStatus": {
+          "type": "string",
+          "description": "Current lifecycle deployment status.",
+          "enum": ["DRAFT", "STAGING", "DEPLOYED"]
+        },
+        "activeVersion": {
+          "type": "string",
+          "description": "Semantic version tag of the project."
+        },
+        "screens": {
+          "type": "array",
+          "description": "List of visual screen maps containing Sketchware-style component trees."
+        },
+        "files": {
+          "type": "array",
+          "description": "List of project code file maps across UI, ViewModel, Data, Backend, and Security layers."
+        },
+        "backend": {
+          "type": "object",
+          "description": "Full-stack Firebase & Cloud backend configuration map."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned creation timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned last modification timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "packageName",
+        "tagline",
+        "themePreset",
+        "architecture",
+        "cloudRegion",
+        "scalingTier",
+        "deploymentStatus",
+        "activeVersion",
+        "screens",
+        "files",
+        "backend",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DeploymentRecord": {
+      "title": "DeploymentRecord",
+      "description": "An immutable-history cloud deployment release record for a project.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the project owner."
+        },
+        "projectId": {
+          "type": "string",
+          "description": "ID of the deployed AppProject document."
+        },
+        "projectName": {
+          "type": "string",
+          "description": "Display name of the deployed project."
+        },
+        "versionTag": {
+          "type": "string",
+          "description": "Semantic version tag for this deployment."
+        },
+        "environment": {
+          "type": "string",
+          "description": "Target environment.",
+          "enum": ["STAGING", "PRODUCTION"]
+        },
+        "cloudRegion": {
+          "type": "string",
+          "description": "Provisioned cloud region."
+        },
+        "status": {
+          "type": "string",
+          "description": "Deployment status.",
+          "enum": ["SUCCEEDED", "ROLLED_BACK"]
+        },
+        "endpointUrl": {
+          "type": "string",
+          "description": "Live cloud endpoint or preview URL."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Release notes or deployment log summary."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned deployment timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "projectId",
+        "projectName",
+        "versionTag",
+        "environment",
+        "cloudRegion",
+        "status",
+        "endpointUrl",
+        "summary",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/projects/{projectId}": {
+      "schema": {
+        "$ref": "#/entities/AppProject"
+      },
+      "description": "User-scoped full-stack app builder projects owned by userId."
+    },
+    "/users/{userId}/deployments/{deploymentId}": {
+      "schema": {
+        "$ref": "#/entities/DeploymentRecord"
+      },
+      "description": "User-scoped cloud deployment history records owned by userId."
+    }
+  }
+}

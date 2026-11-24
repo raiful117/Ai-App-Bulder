@@ -1,0 +1,6 @@
+{
+  "name": "BCF Builder AI",
+  "description": "Production full-stack AI-powered Android app development platform combining visual drag-and-drop UI design, Sketchware-style logic blocks, multi-file code editor, AI project agent, Firebase & backend builder, database studio, and project export/build worker integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

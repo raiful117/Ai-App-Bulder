@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidProject(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.packageName is string && data.packageName.size() >= 3 && data.packageName.size() <= 120 &&
+             data.tagline is string && data.tagline.size() <= 180 &&
+             data.themePreset in ['OBSIDIAN_CYAN', 'EMERALD_CLOUD', 'INDIGO_PULSE', 'SUNSET_CORAL', 'MONOCHROME_PRO'] &&
+             data.architecture in ['CLEAN_MVVM', 'MVI_MODULAR', 'FEATURE_FIRST'] &&
+             data.cloudRegion is string && data.cloudRegion.size() >= 2 && data.cloudRegion.size() <= 40 &&
+             data.scalingTier in ['SERVERLESS_AUTO', 'EDGE_GLOBAL', 'HIGH_MEMORY'] &&
+             data.deploymentStatus in ['DRAFT', 'STAGING', 'DEPLOYED'] &&
+             data.activeVersion is string && data.activeVersion.size() >= 1 && data.activeVersion.size() <= 24 &&
+             data.screens is list && data.screens.size() <= 25 && (data.screens.size() == 0 || data.screens[0] is map) &&
+             data.files is list && data.files.size() <= 60 && (data.files.size() == 0 || data.files[0] is map) &&
+             data.backend is map;
+    }
+
+    function isValidDeployment(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             isValidId(data.projectId) &&
+             data.projectName is string && data.projectName.size() >= 1 && data.projectName.size() <= 80 &&
+             data.versionTag is string && data.versionTag.size() >= 1 && data.versionTag.size() <= 24 &&
+             data.environment in ['STAGING', 'PRODUCTION'] &&
+             data.cloudRegion is string && data.cloudRegion.size() >= 2 && data.cloudRegion.size() <= 40 &&
+             data.status in ['SUCCEEDED', 'ROLLED_BACK'] &&
+             data.endpointUrl is string && data.endpointUrl.size() >= 1 && data.endpointUrl.size() <= 240 &&
+             data.summary is string && data.summary.size() <= 500;
+    }
+
+    match /users/{userId}/projects/{projectId} {
+      allow list: if isOwner(userId);
+      allow get, delete: if isOwner(userId) && isValidId(projectId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(projectId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'name', 'packageName', 'tagline', 'themePreset',
+                         'architecture', 'cloudRegion', 'scalingTier', 'deploymentStatus',
+                         'activeVersion', 'screens', 'files', 'backend', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'name', 'packageName', 'tagline', 'themePreset',
+                         'architecture', 'cloudRegion', 'scalingTier', 'deploymentStatus',
+                         'activeVersion', 'screens', 'files', 'backend', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp &&
+                       incoming().updatedAt <= request.time &&
+                       isValidProject(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(projectId) &&
+                       isValidProject(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp &&
+                       incoming().updatedAt <= request.time &&
+                       (
+                         // Action 1: Design, layout, or code structure update
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'packageName', 'tagline', 'themePreset', 'architecture',
+                           'screens', 'files', 'backend', 'updatedAt'
+                         ]) ||
+                         // Action 2: Cloud infrastructure or deployment release update
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'cloudRegion', 'scalingTier', 'deploymentStatus', 'activeVersion',
+                           'backend', 'updatedAt'
+                         ])
+                       );
+    }
+
+    match /users/{userId}/deployments/{deploymentId} {
+      allow list: if isOwner(userId);
+      allow get, delete: if isOwner(userId) && isValidId(deploymentId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(deploymentId) &&
+                       incoming().userId == request.auth.uid &&
+                       exists(/databases/$(database)/documents/users/$(userId)/projects/$(incoming().projectId)) &&
+                       incoming().keys().hasAll([
+                         'userId', 'projectId', 'projectName', 'versionTag', 'environment',
+                         'cloudRegion', 'status', 'endpointUrl', 'summary', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'projectId', 'projectName', 'versionTag', 'environment',
+                         'cloudRegion', 'status', 'endpointUrl', 'summary', 'createdAt'
+                       ]) &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       isValidDeployment(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(deploymentId) &&
+                       isValidDeployment(incoming()) &&
+                       existing().status != 'ROLLED_BACK' &&
+                       incoming().userId == existing().userId &&
+                       incoming().projectId == existing().projectId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Action: Roll back an active deployment
+                         (incoming().status == 'ROLLED_BACK' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'summary']))
+                       );
+    }
+  }
+}

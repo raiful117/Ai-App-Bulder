@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String            @id @default(cuid())
+  ownerUid    String
+  name        String
+  packageName String
+  tagline     String            @default("")
+  architecture String           @default("CLEAN_MVVM")
+  payloadJson Json
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  snapshots   ProjectSnapshot[]
+  builds      BuildJob[]
+
+  @@index([ownerUid])
+}
+
+model ProjectSnapshot {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label       String
+  payloadJson Json
+  createdAt   DateTime @default(now())
+}
+
+model BuildJob {
+  id          String   @id @default(cuid())
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  ownerUid    String
+  projectName String
+  packageName String
+  target      String   // DEBUG_APK, RELEASE_APK, APP_BUNDLE
+  gradleTask  String   // assembleDebug, assembleRelease, bundleRelease
+  status      String   // QUEUED, RUNNING, SUCCEEDED, FAILED
+  logs        String   @default("")
+  artifactUrl String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ownerUid, createdAt])
+}

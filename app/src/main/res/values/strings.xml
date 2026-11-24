@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">BCF Builder AI</string>
+    <string name="auth_title">BCF Builder AI</string>
+    <string name="auth_subtitle">Design, program with logic blocks, code, build backends, preview, and ship full-stack Android apps.</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="sign_out">Sign out</string>
+    <string name="cd_studio_hero">BCF Builder AI dark glassmorphic IDE studio banner</string>
+    <string name="cd_cloud_infra">Cloud infrastructure and serverless database diagram</string>
+    <string name="cd_add_component">Add visual component</string>
+</resources>
